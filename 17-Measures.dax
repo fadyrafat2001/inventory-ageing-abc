@@ -1,0 +1,13 @@
+// UNEXECUTED DAX. Create each definition as a separate measure.
+
+Stock Value EGP = SUM(FactStock[Stock_Value_EGP])
+
+Annual Usage Value EGP = SUM(FactStock[Annual_Usage_Value_EGP])
+
+Aged Over 180 Value EGP = SUMX(FILTER(FactStock, FactStock[Age_Days] > 180), FactStock[Stock_Value_EGP])
+
+Aged Over 180 Share = DIVIDE([Aged Over 180 Value EGP], [Stock Value EGP])
+
+SKU Count = DISTINCTCOUNT(FactStock[SKU])
+
+Weighted Age Days = DIVIDE(SUMX(FactStock, FactStock[Age_Days] * FactStock[Stock_Value_EGP]), [Stock Value EGP])

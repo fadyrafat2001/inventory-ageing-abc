@@ -1,0 +1,121 @@
+# Inventory ageing and ABC
+
+Status: synthetic source assets only, no executed Power BI report. Prepared with assistant support. Not prior independent work.
+
+## Business question
+Where is stock value concentrated, and which older stock should be reviewed first?
+
+## Data and model
+24 unique SKUs, each held in one warehouse in this simplified snapshot as of 30 September 2026. No movements/time series. Age is days since the synthetic receipt of the entire lot; not days since last sale.
+
+## Relationships
+DimCategory[Category] and DimWarehouse[Warehouse] each filter FactStock, active 1:* single direction. Two relationships. SKU is a degenerate identifier in the fact.
+
+## Import and implementation
+Open the accompanying XLSX in Power BI Desktop using Get data > Excel > Transform Data, or use Queries.pq with the WorkbookPath parameter. Each commented query block is a separate query, not one script to paste wholesale. Load only the named data sheets. Set explicit data types; parse dates with en-US where applicable. Remove auto-created relationships, then create the specified ones. Add DAX measures individually and format ratios as percentages, money as EGP. Hide unused fact columns and use dimension fields for filters.
+
+## Report pages
+Overview: stock value, aged share, category and warehouse filters. Review: SKU table with age, ABC and value; stock-value bars by class. QA: unique SKU, no negative inputs, stock value = qty*cost. An ageing flag is an investigation list, not an impairment conclusion.
+
+## Tests
+Expected_Results.json was independently calculated from these inputs in Python. M/DAX have NOT been executed. Match whole-dataset results and relevant filters before calling the report complete. Check each dimension key is unique and non-null; each fact key matches a dimension; required numeric inputs have no nulls or errors. No silent replacement of missing values with zero. Test slicers, clear-all, cross-highlighting, tooltip and drill-through, and confirm totals do not duplicate after relationships. Save PBIX and capture report + Model view; record Desktop version, refresh date and test results.
+
+## Limits
+ABC is fixed using descending annual usage VALUE, not quantity or closing stock. Stable tie-break is SKU ascending. Classification uses cumulative share BEFORE the current item: A before 80%, B before 95%, else C; threshold-crossing item remains in the earlier group. Recompute only when the underlying snapshot changes, not per slicer. Snapshot values must never be summed across dates. No inventory turnover/COGS claim and no automatic write-down.
+
+## Sources for implementation
+https://learn.microsoft.com/en-us/power-bi/guidance/star-schema
+https://learn.microsoft.com/en-us/dax/sumx-function-dax
+
+## Field dictionary
+SKU is a unique fictional stock item. Category and Warehouse are dimension keys. OnHand_Qty and Annual_Usage_Qty are item quantities, not money. UnitCost_EGP is EGP per item. Age_Days is age of the lot. Annual_Usage_Value_EGP equals annual usage quantity times unit cost; Stock_Value_EGP equals on-hand quantity times unit cost. ABC_Class is precomputed for the whole fixed snapshot using the documented annual-usage-value rule. It is not a dynamic DAX calculation.
+
+## Independent filtered acceptance tests
+{
+  "checks": "Unique fact keys, unique nonblank dimension keys and all fact-to-dimension matches passed in Python. Native relationships not tested.",
+  "filtered_results": {
+    "WH-1": {
+      "stock_value": "75940"
+    },
+    "WH-2": {
+      "stock_value": "69760"
+    }
+  }
+}
+
+
+SKU is a unique fictional stock item. Category and Warehouse are dimension keys. OnHand_Qty and Annual_Usage_Qty are item quantities, not money. UnitCost_EGP is EGP per item. Age_Days is age of the lot. Annual_Usage_Value_EGP equals annual usage quantity times unit cost; Stock_Value_EGP equals on-hand quantity times unit cost. ABC_Class is precomputed for the whole fixed snapshot using the documented annual-usage-value rule. It is not a dynamic DAX calculation.
+
+
+{
+  "sku_count": 24,
+  "stock_value_egp": 145700,
+  "annual_usage_value_egp": 778880,
+  "aged_over_180_value_egp": 77644,
+  "abc_counts": {
+    "A": 11,
+    "B": 6,
+    "C": 7
+  }
+}
+
+{
+  "checks": "Unique fact keys, unique nonblank dimension keys and all fact-to-dimension matches passed in Python. Native relationships not tested.",
+  "filtered_results": {
+    "WH-1": {
+      "stock_value": "75940"
+    },
+    "WH-2": {
+      "stock_value": "69760"
+    }
+  }
+}
+
+EXACT UNEXECUTED M SOURCE
+// UNEXECUTED M SOURCE. Create text parameter WorkbookPath with full local XLSX path.
+// Create this function as fxSheet; invoke it once per data sheet below.
+(sheetName as text) as table =>
+let
+    Source = Excel.Workbook(File.Contents(WorkbookPath), null, true),
+    Data = Source{[Item=sheetName, Kind="Sheet"]}[Data],
+    Headers = Table.PromoteHeaders(Data, [PromoteAllScalars=true])
+in
+    Headers
+
+// Separate query named FactStock:
+let
+    Source = fxSheet("FactStock"),
+    Typed = Table.TransformColumnTypes(Source, {{"SKU", type text}, {"Category", type text}, {"Warehouse", type text}, {"OnHand_Qty", type number}, {"UnitCost_EGP", type number}, {"Age_Days", type number}, {"Annual_Usage_Qty", type number}, {"Annual_Usage_Value_EGP", type number}, {"Stock_Value_EGP", type number}, {"ABC_Class", type text}}, "en-US")
+in
+    Typed
+
+// Separate query named DimCategory:
+let
+    Source = fxSheet("DimCategory"),
+    Typed = Table.TransformColumnTypes(Source, {{"Category", type text}}, "en-US")
+in
+    Typed
+
+// Separate query named DimWarehouse:
+let
+    Source = fxSheet("DimWarehouse"),
+    Typed = Table.TransformColumnTypes(Source, {{"Warehouse", type text}}, "en-US")
+in
+    Typed
+
+
+
+EXACT UNEXECUTED DAX SOURCE
+// UNEXECUTED DAX. Create each definition as a separate measure.
+
+Stock Value EGP = SUM(FactStock[Stock_Value_EGP])
+
+Annual Usage Value EGP = SUM(FactStock[Annual_Usage_Value_EGP])
+
+Aged Over 180 Value EGP = SUMX(FILTER(FactStock, FactStock[Age_Days] > 180), FactStock[Stock_Value_EGP])
+
+Aged Over 180 Share = DIVIDE([Aged Over 180 Value EGP], [Stock Value EGP])
+
+SKU Count = DISTINCTCOUNT(FactStock[SKU])
+
+Weighted Age Days = DIVIDE(SUMX(FactStock, FactStock[Age_Days] * FactStock[Stock_Value_EGP]), [Stock Value EGP])
